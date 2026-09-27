@@ -1,9 +1,9 @@
-# Hertzian Contact: displacement profile (z=0)
+# ヘルツ接触解（表面垂直変位u_z)
 
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 1. 物理定数および計算条件の設定 (ナノスケール)
+# 1. 物性値およびパラメータの設定
 P = 1.0e-9          # 全荷重: 1 nN
 E = 10.0e6          # ヤング率: 10 MPa
 nu = 0.40           # ポアソン比
@@ -43,25 +43,25 @@ fig, ax = plt.subplots(figsize=(8, 6))
 ax.axhline(0, color='black', linestyle='--', linewidth=0.8, label=r'Undeformed Surface ($z$ = 0)')
 
 # ★【ここを修正】押し込んでいる球（プローブ）のプロファイルを左右6nmの全域に広げる
-# 上空（z < 0 の領域、すなわち変位がマイナスに突き抜ける世界）まで描画します
+# 上空（z < 0 の領域、すなわち変位がマイナスに突き抜ける世界）まで描画
 r_sphere_all = np.linspace(-50.0, 50.0, 1000)
 # 球の放物線形状： z = delta - r^2 / 2R
 z_sphere_all = delta_nm - (r_sphere_all**2) / (2 * R_probe * 1e9)
 ax.plot(r_sphere_all, z_sphere_all, color='orange', linestyle='-', linewidth=1.5, label='Parabolic Probe')
 
 # 材料の本物の表面プロファイル w(r)
-ax.plot(r_nm, w_nm, color='g', linewidth=2.0, label=r'Displacement, $w(r)$')
+ax.plot(r_nm, w_nm, color='g', linewidth=2.0, label=r'Displacement, $u_z(r)$')
 
 # 重要なポイントのプロット
 ax.plot(0, delta_nm, 'ro', markersize=8, label=f'Max Indentation ($\delta$ = {delta_nm:.1f} nm)')
-ax.plot(a_nm, delta_nm/2, 'bo', markersize=8, label=f'Contact Edge ($r = a$, $w = \delta$/2)')
+ax.plot(a_nm, delta_nm/2, 'bo', markersize=8, label=f'Contact Edge ($r = a$, $u_z = \delta$/2)')
 ax.plot(-a_nm, delta_nm/2, 'bo', markersize=8)
 
 # グラフの見た目調整（下向き正に反転、さらに上空 z<0 が見えるようにylimの上限をマイナスまで広げる）
 fig.gca().invert_yaxis()
 ax.set_title('Profile of Hertzian Contact (Probe vs Elastic Body)', fontsize=12)
 ax.set_xlabel(r'Radius, $r$ /nm', fontsize=12)
-ax.set_ylabel(r'Displacement, $w(r)$ /nm', fontsize=12)
+ax.set_ylabel(r'Displacement, $u_z(r)$ /nm', fontsize=12)
 
 # 上空 -30.0 nm から 押し込み深さの2.0倍までを描写範囲にする
 ax.set_ylim(delta_nm * 2.0, -30.0) 

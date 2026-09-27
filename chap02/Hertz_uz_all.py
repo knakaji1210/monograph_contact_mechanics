@@ -1,4 +1,4 @@
-# Hertzian Contact: displacement profile
+# ヘルツ接触解（垂直変位u_z)
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,8 +8,6 @@ P = 1.0e-9          # 全荷重: 1 nN
 E = 10.0e6          # ヤング率: 10 MPa
 nu = 0.20           # ポアソン比
 R_probe = 10.0e-9   # 球の半径: 10 nm
-
-
 
 # 2. 絶対的な等高線基準の計算（nu=0.5 の delta を絶対基準として固定）
 nu_base = 0.5
