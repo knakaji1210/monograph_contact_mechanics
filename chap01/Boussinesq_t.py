@@ -1,5 +1,6 @@
-# ブジネスク解（せん断応力 τ_zr の絶対値）
+# ブジネスク解（円柱座標系 r >= 0 におけるせん断応力 τ_zr）
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -9,79 +10,80 @@ G = 10*1.0e6  # せん断弾性率 [Pa] (10 MPa)
 nu = 0.4      # ポアソン比
 
 # 2. 計算領域の設定 (単位: nm)
-r_vec = np.linspace(-30, 30, 300)
-z_vec = np.linspace(-20, 40, 300)
+r_vec = np.linspace(1e-5, 30, 300)
+z_vec = np.linspace(0, 30, 300)
 
 # グリッドの作成
 R_mesh, Z_mesh = np.meshgrid(r_vec, z_vec)
 
-# 3. 応力 |tau_zr| の計算用配列の初期化 (初期値は NaN)
-tau_zr_abs_Pa = np.full_like(Z_mesh, np.nan)
+# 3. せん断応力 tau_zr の計算用配列の初期化
+tau_zr_MPa = np.full_like(Z_mesh, np.nan)
 
-# 4. 弾性体が存在する領域 (z >= 0) のみにブジネスク解を適用
-mask_elastic = (Z_mesh >= 0)
+# 4. 弾性体が存在する領域にブジネスク解を適用
 R_dist = np.sqrt(R_mesh**2 + Z_mesh**2)
 mask_singularity = (R_dist < 0.1)
-
-# 計算対象のインデックス (弾性体内部かつ特異点ではない場所)
-valid_idx = mask_elastic & ~mask_singularity
+valid_idx = ~mask_singularity
 
 # 単位換算をして計算 (m単位へ)
 R_SI = R_dist[valid_idx] * 1e-9
 Z_SI = Z_mesh[valid_idx] * 1e-9
-r_SI = R_mesh[valid_idx] * 1e-9  # 符号を保持して計算に回す
+r_SI = R_mesh[valid_idx] * 1e-9  
 
-# τ_zr の計算
+# せん断応力 tau_zr の計算 (SI単位系: Pa)
 tau_zr_SI = -(3 * P / (2 * np.pi)) * (r_SI * Z_SI**2 / R_SI**5)
 
-# 【変更点】絶対値（np.abs）を取ってパスカル [Pa] の単位で格納
-tau_zr_abs_Pa[valid_idx] = np.abs(tau_zr_SI)
+# MPa 単位に換算して格納 (1 MPa = 1e6 Pa)
+tau_zr_MPa[valid_idx] = tau_zr_SI / 1e6
 
 # 5. 可視化
-fig, ax = plt.subplots(figsize=(8, 6))
+fig, ax = plt.subplots(figsize=(4.8, 6.4))
+ax.set_aspect('equal')
 
-# 応力の上限（vmax_val）を設定
-vmax_val = 1.05e6  # 50 kPa までをグラデーションで表現
-levels_setting = np.linspace(0, vmax_val, 51)  # 0からvmaxまで50等分
+# 色彩レンジ設定
+vmax_val = 5.0  
+levels_setting = np.linspace(-vmax_val, vmax_val, 101)  
 
-# 等高線プロット (絶対値にしたため、使い慣れた 'viridis' を使用)
-contour = ax.contourf(R_mesh, Z_mesh, tau_zr_abs_Pa, levels=levels_setting, cmap='viridis', extend='max', zorder=1)
-cbar = fig.colorbar(contour, ax=ax)
-cbar.set_label('Absolute Shear Stress, $|\\tau_{zr}|$ / Pa', fontsize=12)
+# テンプレート基準：'turbo' カラーマップを適用（常に負の値またはゼロのため境界破線は不要）
+contour = ax.contourf(R_mesh, Z_mesh, tau_zr_MPa, levels=levels_setting, cmap='turbo', extend='both', zorder=1)
 
-# 弾性体との境界を線で表現
-ax.axhline(0, color='black', linewidth=1.5, linestyle='-', zorder=3)    # 表面の境界線
+# カラーバーを下側に配置
+cbar = fig.colorbar(contour, ax=ax, orientation='horizontal', pad=0.08, aspect=25)
+cbar.set_label('Shear Stress, $\\tau_{rz}$ /MPa', fontsize=11)
 
-# 荷重点を矢印で表現 (中心 r=0, z=0 に向かって下向き)
-ax.annotate('', xy=(0, 0), xytext=(0, -10),
+# 弾性体表面（z=0）の境界線
+ax.axhline(0, color='black', linewidth=1.5, linestyle='-', zorder=3)    
+
+# 荷重点を矢印で表現
+ax.annotate('', xy=(0, 0), xytext=(0, -8),
             arrowprops=dict(facecolor='red', shrink=0, width=2, headwidth=8), zorder=4)
-ax.text(0, -13, '$P$', color='red', ha='center', va='center', fontsize=14, zorder=4)
+ax.text(0, -11, '$P$', color='red', ha='center', va='center', fontsize=14, zorder=4)
 
 # 領域のテキストラベル
-ax.text(-20, -10, 'Free Space', color='gray', fontsize=11, ha='center', va='center', zorder=3)
-ax.text(-20, 25, 'Elastic Body', color='white', fontsize=11, ha='center', va='center', zorder=3)
+ax.text(3, -4, 'Free Space', color='gray', fontsize=11, ha='left', va='center', zorder=3)
+ax.text(3, 15, 'Elastic Body', color='black', fontsize=11, ha='left', va='center', zorder=3)
 
-# パラメータ (P, G, nu) を画面内のテキストボックスとして書き込み
+# パラメータ (P, G, nu) を書き込み
 param_text = (
-    f"Parameters:\n"
-    f" $P$ = {P*1e9:.1f} nN\n"
-    f" $G$ = {G/1e6:.1f} MPa\n"
-    f" $\\nu$ = {nu:.1f}"
+    f"$P$ = {P*1e9:.1f} nN\n"
+    f"$G$ = {G/1e6:.1f} MPa\n"
+    f"$\\nu$ = {nu:.1f}"
 )
-props = dict(boxstyle='round,pad=0.1', facecolor='white', edgecolor='gray', alpha=0.9)
-ax.text(15, -10, param_text, transform=ax.transData, fontsize=11,
+props = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.9)
+ax.text(18, -6, param_text, transform=ax.transData, fontsize=10,
         verticalalignment='center', horizontalalignment='left', bbox=props, zorder=5)
 
 # 軸の設定
-ax.set_title('Boussinesq Solution (absolute shear stress, $|\\tau_{zr}|$)', fontsize=14, pad=15)
+ax.set_title('Boussinesq Solution (Stress, $\\tau_{rz}$)', fontsize=13, pad=12)
 ax.set_xlabel('Radius, $r$ /nm', fontsize=12)
 ax.set_ylabel('Depth, $z$ /nm', fontsize=12)
-ax.set_xlim(-30, 30)
-ax.set_ylim(-20, 40)
-ax.invert_yaxis()  # 下向き正
+ax.set_xlim(0, 30)
+ax.set_ylim(-20, 30)  
+ax.invert_yaxis()  
 ax.grid(True, linestyle=':', alpha=0.6, zorder=0)
 
-fig.savefig('./png/Boussinesq_t.png', dpi=300)
-
+# 保存
+os.makedirs('./png', exist_ok=True)
 plt.tight_layout()
+fig.savefig('./png/Boussinesq_t.png', dpi=300, bbox_inches='tight')
+
 plt.show()
