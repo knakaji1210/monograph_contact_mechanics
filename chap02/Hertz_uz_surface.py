@@ -16,11 +16,12 @@ E_star = E / (2 * (1 - nu**2))
 a = (3 * P * R_probe / (4 * E_star))**(1/3)
 delta = a**2 / R_probe
 
-# 2. 表面プロファイル計算用の細かなサンプリング (中心から左右 50 nm の範囲)
+# 2. 計算領域の設定 (単位: nm)
 r_vec = np.linspace(-50.0, 50.0, 1000) * 1e-9
 w_vec = np.zeros_like(r_vec)
 
 # 3. 領域内（放物線）と領域外（真の厳密解）の条件分岐計算
+# rではなく絶対値abs_rを使うことで、左右対称の計算を簡略化
 for i, r in enumerate(r_vec):
     abs_r = np.abs(r)
     if abs_r <= a:
@@ -42,14 +43,13 @@ fig, ax = plt.subplots(figsize=(8, 6))
 # 変形前の表面 (z=0 の基準線)
 ax.axhline(0, color='black', linestyle='--', linewidth=0.8, label=r'Undeformed Surface ($z$ = 0)')
 
-# ★【ここを修正】押し込んでいる球（プローブ）のプロファイルを左右6nmの全域に広げる
-# 上空（z < 0 の領域、すなわち変位がマイナスに突き抜ける世界）まで描画
+# 変形後の表面プロファイルを描画
 r_sphere_all = np.linspace(-50.0, 50.0, 1000)
 # 球の放物線形状： z = delta - r^2 / 2R
 z_sphere_all = delta_nm - (r_sphere_all**2) / (2 * R_probe * 1e9)
 ax.plot(r_sphere_all, z_sphere_all, color='orange', linestyle='-', linewidth=1.5, label='Parabolic Probe')
 
-# 材料の本物の表面プロファイル w(r)
+# 材料の本物の表面プロファイル u_z(r)
 ax.plot(r_nm, w_nm, color='g', linewidth=2.0, label=r'Displacement, $u_z(r)$')
 
 # 重要なポイントのプロット
