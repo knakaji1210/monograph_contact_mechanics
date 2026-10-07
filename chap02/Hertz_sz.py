@@ -1,142 +1,125 @@
-# ヘルツ接触解（垂直応力 σ_z）
+# ヘルツ接触解（円柱座標系 r >= 0 における垂直応力 σ_z）- センターゼロ turbo 版
 
+import os
 import numpy as np
 import matplotlib.pyplot as plt
 
-# 1. 物理定数および計算条件の設定
+# 1. 物理定数および計算条件の設定 (ナノスケール)
 P = 1.0e-9          # 全荷重: 1 nN
 E = 10.0e6          # ヤング率: 10 MPa
 nu = 0.40           # ポアソン比
 R_probe = 10.0e-9   # 球の半径: 10 nm
 
-# 接触半径 a および最大面圧 p0 の理論自動計算 ---
-E_star = E / (1.0 - nu**2)                     # 等価弾性率 E*
-a = ((3 * P * R_probe) / (4 * E_star))**(1/3)  # 接触半径 a の自動計算
-delta = a**2 / R_probe
-p0 = (3 * P) / (2 * np.pi * a**2)              # 真の最大接触面圧 p0
+# 2. 絶対的な等高線基準の計算（nu=0.5 の delta を絶対基準として固定）
+nu_base = 0.5
+E_star_base = E / (1.0 - nu_base**2)
+a_base = (3.0 * P * R_probe / (4.0 * E_star_base))**(1.0 / 3.0)
+delta_base = a_base**2 / R_probe
 
-# 2. 計算領域の設定 (単位: nm) - テンプレートを完全踏襲
-r_vec = np.linspace(-30, 30, 300)
-z_vec = np.linspace(-20, 40, 300)
+# 現在のポアソン比 nu における実際の弾性諸元
+E_star = E / (1.0 - nu**2)
+a_SI = (3.0 * P * R_probe / (4.0 * E_star))**(1.0 / 3.0)
+delta_SI = a_SI**2 / R_probe
+p0 = 3.0 * P / (2.0 * np.pi * a_SI**2)
+
+# 3. 計算領域の設定 (単位: nm)
+a_nm = a_SI * 1e9
+r_vec = np.linspace(1e-5, 30, 300) # テンプレート基準：円柱座標系 r >= 0
+z_vec = np.linspace(0, 30, 300)   # テンプレート基準：深さ 30 nm (弾性体内部のみ)
 
 # グリッドの作成
 R_mesh, Z_mesh = np.meshgrid(r_vec, z_vec)
 
-# 3. 応力 σ_z の計算用配列の初期化 (初期値は NaN)
-sigma_z_Pa = np.full_like(Z_mesh, np.nan)
+# 各メッシュ点の物理量をm単位に換算 (ゼロ割り・特異点回避のため極小のオフセット 1e-20 を追加)
+r_SI = R_mesh * 1e-9 + 1e-20
+z_SI = Z_mesh * 1e-9 + 1e-20
 
-# 4. 弾性体が存在する領域 (z >= 0) のみにヘルツ解を適用
-mask_elastic = (Z_mesh >= 0)
-valid_idx = mask_elastic
+# 4. 幾何学空間パラメータ xi (正の実根) の計算
+B = a_SI**2 - r_SI**2 - z_SI**2
+xi = 0.5 * (-B + np.sqrt(B**2 + 4 * a_SI**2 * z_SI**2))
+xi_safe = np.where(xi < 1e-20, 1e-20, xi) # ゼロ割り防御壁
 
-# 単位換算をして計算 (m単位へ)
-R_SI = np.abs(R_mesh[valid_idx]) * 1e-9
-Z_SI = Z_mesh[valid_idx] * 1e-9
+# 5. 垂直応力 σ_z の計算（完全ベクトル化・特異点厳密防壁仕様）
+denom = np.sqrt(xi_safe) * (xi_safe**2 + a_SI**2 * z_SI**2)
+sigma_z_internal = p0 * (a_SI**2 * z_SI**3) / denom
 
-# σ_z の計算用一時配列
-sigma_z_SI = np.zeros_like(Z_SI)
+# 最表面 (z=0) の境界条件を解析的厳密解へ滑らかに差し替え（特異点置換）
+sigma_z_surface = np.where(r_SI <= a_SI, p0 * np.sqrt(1.0 - (r_SI / a_SI)**2), 0.0)
+sigma_z_Pa = np.where(z_SI < 1e-11, sigma_z_surface, sigma_z_internal)
 
-# ループによる各格子点の幾何学パラメータ xi の陽解法および応力計算
-for i in range(len(Z_SI)):
-    r_si = R_SI[i]
-    z_si = Z_SI[i]
-    
-    # 表面 (z = 0) の特異点・境界条件の厳密処理 (自動計算された a を適用)
-    if z_si < 1e-20:
-        if r_si <= a:
-            sigma_z_SI[i] = p0 * np.sqrt(1.0 - (r_si / a)**2)
-        else:
-            sigma_z_SI[i] = 0.0
-        continue
+# 表示用に MPa 単位へ換算
+sigma_z_MPa = sigma_z_Pa / 1e6
 
-    # 2次方程式による xi の陽解法 (空間スケール基準を a に統一)
-    A = 1.0
-    B = a**2 - r_si**2 - z_si**2
-    C = - (a**2) * (z_si**2)
-    
-    xi = (-B + np.sqrt(B**2 - 4*A*C)) / (2*A)
-    
-    # 面外極限での安全装置
-    if xi <= 0.0:
-        sigma_z_SI[i] = p0 if r_si <= a else 0.0
-        continue
-        
-    # 本来の符号（素直な定義：圧縮が正）での計算
-    denom = np.sqrt(xi) * (xi**2 + a**2 * z_si**2)
-    sigma_z_SI[i] = p0 * (a**2 * z_si**3) / denom
+# 6. 可視化
+fig, ax = plt.subplots(figsize=(4.8, 6.4))
+ax.set_aspect('equal')
 
-# パスカル [Pa] の単位のまま格納
-sigma_z_Pa[valid_idx] = sigma_z_SI
+# 💥【センターゼロ・正負対称等高線ロジック × turbo維持】
+# 最大振幅を最大面圧 p0_MPa とし、-p0_MPa から +p0_MPa までを 0 を中心に対称に101分割
+p0_MPa = p0 / 1e6
+vmax_val = p0_MPa
+levels_setting = np.linspace(-vmax_val, vmax_val, 101)
 
-# 5. 可視化
-fig, ax = plt.subplots(figsize=(8, 6))
+# テンプレート基準の 'turbo' カラーマップを厳格に適用
+contour = ax.contourf(R_mesh, Z_mesh, sigma_z_MPa, levels=levels_setting, cmap='turbo', extend='both', zorder=1)
 
-# 応力の上限・下限（vmax_val）を設定
-vmax_val = p0  # 自動計算された最大面圧 p0 までをグラデーションで表現
-levels_setting = np.linspace(0, vmax_val, 51)
+# カラーバーを下側に配置
+cbar = fig.colorbar(contour, ax=ax, orientation='horizontal', pad=0.08, aspect=25)
+cbar.set_label('Vertical Stress, $\sigma_z$ /MPa', fontsize=11)
 
-# 等高線プロット
-contour = ax.contourf(R_mesh, Z_mesh, sigma_z_Pa, levels=levels_setting, cmap='viridis', extend='max', zorder=1)
-cbar = fig.colorbar(contour, ax=ax)
-cbar.set_label('Vertical Stress, $\sigma_z$ / Pa', fontsize=12)
+# ヘルツ面圧の描画
+pressure_scale = 10.0  # 最大高さ (nm単位)
+r_plot = np.linspace(0, 30, 500)
+p_profile = np.zeros_like(r_plot)
 
-# ヘルツ面圧）の重ね書き (自動計算された a と連動)
-r_contact_nm = np.linspace(-a*1e9, a*1e9, 200)
-r_contact_m = r_contact_nm * 1e-9
+mask_inside = r_plot <= a_nm
+p_profile[mask_inside] = pressure_scale * np.sqrt(1.0 - (r_plot[mask_inside] / a_nm)**2)
 
-# 各位置での面圧 p(r) を計算
-p_distribution = p0 * np.sqrt(1.0 - (r_contact_m / a)**2)
+ax.plot(r_plot, -p_profile, color='crimson', linewidth=1.0, ls='--', label='Hertz Pressure Profile', zorder=4)
+ax.fill_between(r_plot, 0, -p_profile, color='crimson', alpha=0.15, zorder=3)
 
-# 自由空間側の高さマッピング (-15nmにピークがくるようスケール調整)
-z_scale_factor = -10.0 / p0 
-z_profile_nm = p_distribution * z_scale_factor
+# 頂点への補助矢印とラベル (r=0の位置)
+ax.annotate('', xy=(0, 0), xytext=(0, -pressure_scale),
+            arrowprops=dict(facecolor='crimson', shrink=0, width=1.5, headwidth=6), zorder=4)
+ax.text(0.5, -pressure_scale - 2, '$p_{\mathrm{max}}$', color='crimson', ha='left', va='center', fontsize=11, zorder=4)
 
-# お椀型プロファイルを赤の実線で描写
-ax.plot(r_contact_nm, z_profile_nm, color='red', linestyle='-', linewidth=2, zorder=4, label='Hertz Pressure Profile')
-ax.fill_between(r_contact_nm, 0, z_profile_nm, color='red', alpha=0.1, zorder=2)
-# --------------------------------------------------
-
-# 弾性体との境界を線で表現
-ax.axhline(0, color='black', linewidth=1.5, linestyle='-', zorder=3)
-
-# 接触面（自動計算された -a から a）を強調表示する赤ライン
-ax.plot([-a*1e9, a*1e9],[0,0], color='red', linewidth=3, zorder=4, label='Contact Area')
-
-# 荷重点を矢印で表現
-ax.annotate('', xy=(0, 0), xytext=(0, -10),
-            arrowprops=dict(facecolor='red', shrink=0, width=2, headwidth=8), zorder=5)
-ax.text(0, -12.5, '$p_{{max}}$', color='red', ha='center', va='center', fontsize=14, zorder=5)
+# 弾性体表面（z=0）の境界線
+ax.axhline(0, color='black', linewidth=1.5, linestyle='-', zorder=3)    
+# 接触ゾーン（Contact Zone）の黒線を r >= 0（0からa_nm）の範囲で描画
+ax.plot([0, a_nm], [0, 0], color='black', linewidth=0.5, label='Contact Zone', zorder=4)
 
 # 領域のテキストラベル
-ax.text(-22, -5, 'Free Space', color='gray', fontsize=11, ha='center', va='center', zorder=3)
-ax.text(-20, 25, 'Elastic Body', color='white', fontsize=11, ha='center', va='center', zorder=3)
+ax.text(3, -15, 'Free Space', color='gray', fontsize=11, ha='left', va='center', zorder=3)
+ax.text(3, 15, 'Elastic Body', color='black', fontsize=11, ha='left', va='center', zorder=3)
 
-# パラメータ書き込み（P, E, nu, R に加え、自動計算された a と p0 も完全出力）
+# パラメータ表示
+delta_nm_current = delta_SI * 1e9
 param_text = (
-    f"Parameters:\n"
-    f" $P$ = {P*1e9:.1f} nN\n"
-    f" $E$ = {E/1e6:.1f} MPa\n"
-    f" $\\nu$ = {nu:.1f}\n"
-    f" $R$ = {R_probe*1e9:.1f} nm\n"
+    f"$P$ = {P*1e9:.1f} nN\n"
+    f"$E$ = {E/1e6:.1f} MPa\n"
+    f"$\\nu$ = {nu:.1f}\n"
+    f"$R$ = {R_probe*1e9:.1f} nm\n"
     f"Calculated:\n"
-    f" $a$ = {a*1e9:.2f} nm\n"
-    f" $\\delta$ = {delta*1e9:.1f} nm\n"
-    f" $p_{{max}}$ = {p0/1e6:.1f} MPa"
+    f" $a$ = {a_nm:.2f} nm\n"
+    f" $\\delta$ = {delta_nm_current:.2f} nm\n"
+    f" $p_{{\mathrm{{max}}}}$ = {p0_MPa:.1f} MPa"
 )
-props = dict(boxstyle='round,pad=0.1', facecolor='white', edgecolor='gray', alpha=0.9)
-ax.text(15, -5, param_text, transform=ax.transData, fontsize=11,
+props = dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='gray', alpha=0.9)
+ax.text(17, -8, param_text, transform=ax.transData, fontsize=10,
         verticalalignment='center', horizontalalignment='left', bbox=props, zorder=5)
 
 # 軸の設定
-ax.set_title('Hertz Solution (stress, $\sigma_z$)', fontsize=14, pad=15)
+ax.set_title('Hertzian Solution ($\sigma_z$)', fontsize=13, pad=12)
 ax.set_xlabel('Radius, $r$ /nm', fontsize=12)
 ax.set_ylabel('Depth, $z$ /nm', fontsize=12)
-ax.set_xlim(-30, 30)
-ax.set_ylim(-20, 40)
-ax.invert_yaxis()
+ax.set_xlim(0, 30)
+ax.set_ylim(-20, 30)  
+ax.invert_yaxis()  
 ax.grid(True, linestyle=':', alpha=0.6, zorder=0)
 
-fig.savefig('./png/Hertz_sz.png', dpi=300)
-
+# 保存
+os.makedirs('./png', exist_ok=True)
 plt.tight_layout()
+fig.savefig('./png/Hertz_sz.png', dpi=300, bbox_inches='tight')
+
 plt.show()
