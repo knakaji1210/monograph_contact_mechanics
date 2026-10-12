@@ -1,4 +1,4 @@
-# ヘルツ接触解（円柱座標系 r >= 0 における垂直応力 σ_z）- センターゼロ turbo 版
+# ヘルツ接触解（円柱座標系 r >= 0 における垂直応力 σ_z）
 
 import os
 import numpy as np
@@ -41,10 +41,10 @@ xi_safe = np.where(xi < 1e-20, 1e-20, xi) # ゼロ割り防御壁
 
 # 5. 垂直応力 σ_z の計算（完全ベクトル化・特異点厳密防壁仕様）
 denom = np.sqrt(xi_safe) * (xi_safe**2 + a_SI**2 * z_SI**2)
-sigma_z_internal = p0 * (a_SI**2 * z_SI**3) / denom
+sigma_z_internal = -p0 * (a_SI**2 * z_SI**3) / denom
 
 # 最表面 (z=0) の境界条件を解析的厳密解へ滑らかに差し替え（特異点置換）
-sigma_z_surface = np.where(r_SI <= a_SI, p0 * np.sqrt(1.0 - (r_SI / a_SI)**2), 0.0)
+sigma_z_surface = np.where(r_SI <= a_SI, -p0 * np.sqrt(1.0 - (r_SI / a_SI)**2), 0.0)
 sigma_z_Pa = np.where(z_SI < 1e-11, sigma_z_surface, sigma_z_internal)
 
 # 表示用に MPa 単位へ換算
@@ -54,13 +54,12 @@ sigma_z_MPa = sigma_z_Pa / 1e6
 fig, ax = plt.subplots(figsize=(4.8, 6.4))
 ax.set_aspect('equal')
 
-# 💥【センターゼロ・正負対称等高線ロジック × turbo維持】
 # 最大振幅を最大面圧 p0_MPa とし、-p0_MPa から +p0_MPa までを 0 を中心に対称に101分割
 p0_MPa = p0 / 1e6
 vmax_val = p0_MPa
 levels_setting = np.linspace(-vmax_val, vmax_val, 101)
 
-# テンプレート基準の 'turbo' カラーマップを厳格に適用
+# 'turbo' カラーマップを適用
 contour = ax.contourf(R_mesh, Z_mesh, sigma_z_MPa, levels=levels_setting, cmap='turbo', extend='both', zorder=1)
 
 # カラーバーを下側に配置

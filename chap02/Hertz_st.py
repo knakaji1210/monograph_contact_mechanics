@@ -56,7 +56,7 @@ sigma_theta_internal = common_factor * (g_1 + g_2 + g_3)
 
 # 最表面 (z=0) の境界条件を解析的厳密解へ滑らかに差し替え（特異点置換）
 # 圏内(r <= a)は等方的側方拘束(σ_rと同一)、圏外(r > a)は純粋せん断反転(σ_rのマイナス1倍)
-sigma_theta_inside = -p0 * (np.sqrt(1.0 - (r_SI / a_SI)**2) - ((1.0 - 2.0 * nu) / 3.0) * (a_SI**2 / r_SI**2) * (1.0 - (1.0 - (r_SI / a_SI)**2)**1.5))
+sigma_theta_inside = p0 * (-2.0 * nu * np.sqrt(1.0 - (r_SI / a_SI)**2) - ((1.0 - 2.0 * nu) / 3.0) * (a_SI**2 / r_SI**2) * (1.0 - (1.0 - (r_SI / a_SI)**2)**1.5))
 sigma_theta_outside = -p0 * (1.0 - 2.0 * nu) / 3.0 * (a_SI**2 / r_SI**2)
 
 sigma_theta_surface = np.where(r_SI <= a_SI, sigma_theta_inside, sigma_theta_outside)
