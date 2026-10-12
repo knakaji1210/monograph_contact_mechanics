@@ -1,4 +1,4 @@
-# ヘルツ接触解（円柱座標系 r >= 0 における von Mises 等価応力）
+# ヘルツ接触解（円柱座標系 r >= 0 における von Mises 等価応力）- 完全平定版
 
 import os
 import numpy as np
@@ -46,9 +46,9 @@ sqrt_xi = np.sqrt(xi_safe)
 # 5. 4応力成分の厳密内部計算 (Pa単位)
 common_factor = (3.0 * P) / (2.0 * np.pi * a_SI**3)
 
-# ① 垂直応力 σ_z (代数形式はプラスとして計算)
+# ① 垂直応力 σ_z ─── 🚨 核心部修正：完全平定されたマイナス符号の厳密解のフォームを適用
 denom_z = sqrt_xi * (xi_safe**2 + a_SI**2 * z_safe_xi**2)
-sigma_z = p0 * (a_SI**2 * z_safe_xi**3) / denom_z
+sigma_z = -p0 * (a_SI**2 * z_safe_xi**3) / denom_z
 
 # ② ラジアル応力 σ_r (4分割型)
 r_div = np.where(r_SI < 1e-15, 1e-15, r_SI)
@@ -74,21 +74,29 @@ tau_rz = common_factor * h_1
 mask_surface = (Z_mesh == 0)
 idx_inside = (R_mesh <= a_nm) & mask_surface
 r_inside_SI = r_SI[idx_inside]
-sigma_r_surf_inside = np.zeros_like(r_inside_SI)
 
+# σ_r 表面内側計算
+sigma_r_surf_inside = np.zeros_like(r_inside_SI)
 r_zero_mask = (r_inside_SI == 0)
 sigma_r_surf_inside[r_zero_mask] = -p0 * (0.5 + nu)
 r_nonzero = r_inside_SI[~r_zero_mask]
-sigma_r_surf_inside[~r_zero_mask] = -p0 * (np.sqrt(1.0 - (r_nonzero / a_SI)**2) - 
-    ((1.0 - 2.0 * nu) / 3.0) * (a_SI**2 / r_nonzero**2) * (1.0 - (1.0 - (r_nonzero / a_SI)**2)**1.5))
+term_ratio_surf = (a_SI**2 / r_nonzero**2) * (1.0 - (1.0 - (r_nonzero / a_SI)**2)**1.5)
+sigma_r_surf_inside[~r_zero_mask] = -p0 * (np.sqrt(1.0 - (r_nonzero / a_SI)**2) - ((1.0 - 2.0 * nu) / 3.0) * term_ratio_surf)
+
+# σ_θ 表面内側計算 ─── 🚨 核心部修正：謎様が看破した真の厳密解 (第1項へ -2*nu を正しく分配)
+sigma_theta_surf_inside = np.zeros_like(r_inside_SI)
+sigma_theta_surf_inside[r_zero_mask] = -p0 * (0.5 + nu)
+sigma_theta_surf_inside[~r_zero_mask] = p0 * (-2.0 * nu * np.sqrt(1.0 - (r_nonzero / a_SI)**2) - ((1.0 - 2.0 * nu) / 3.0) * term_ratio_surf)
 
 idx_outside = (R_mesh > a_nm) & mask_surface
 sigma_r_surf_outside = p0 * (1.0 - 2.0 * nu) / 3.0 * (a_SI**2 / r_SI[idx_outside]**2)
 
-sigma_z[mask_surface] = np.where(R_mesh[mask_surface] <= a_nm, p0 * np.sqrt(1.0 - (r_SI[mask_surface] / a_SI)**2), 0.0)
+# 各応力配列の最表面を正統な極限値へ滑らかに差し替え
+sigma_z[mask_surface] = -p0 * np.sqrt(1.0 - (r_SI[mask_surface] / a_SI)**2)  # 🚨 核心部修正：圧縮負へ統一
+sigma_z[mask_surface & (R_mesh > a_nm)] = 0.0
 sigma_r[idx_inside] = sigma_r_surf_inside
 sigma_r[idx_outside] = sigma_r_surf_outside
-sigma_theta[idx_inside] = sigma_r_surf_inside
+sigma_theta[idx_inside] = sigma_theta_surf_inside  # 🚨 核心部修正：真の表面内公式を統合
 sigma_theta[idx_outside] = -sigma_r_surf_outside
 tau_rz[mask_surface] = 0.0
 
@@ -97,11 +105,9 @@ mask_axis = (R_mesh == 0)
 sigma_theta[mask_axis] = sigma_r[mask_axis]
 tau_rz[mask_axis] = 0.0
 
-# σ_z を物理的な真の符号である「圧縮＝負」に反転させてからMisesのブラケットに流し込む！
-sigma_z_physical = -sigma_z
-sigma_z_physical[mask_surface] = -np.where(R_mesh[mask_surface] <= a_nm, p0 * np.sqrt(1.0 - (r_SI[mask_surface] / a_SI)**2), 0.0)
-
-mises_bracket = (sigma_r - sigma_theta)**2 + (sigma_theta - sigma_z_physical)**2 + (sigma_z_physical - sigma_r)**2
+# 6. von Mises 等価応力の算出
+# 🚨 核心部修正：すべての応力成分が最初から圧縮負の世界線に統合されたため、手動補正なしでダイレクトにブラケットへ投入
+mises_bracket = (sigma_r - sigma_theta)**2 + (sigma_theta - sigma_z)**2 + (sigma_z - sigma_r)**2
 sigma_mises_Pa = np.sqrt(0.5 * mises_bracket + 3.0 * tau_rz**2)
 sigma_mises_MPa = sigma_mises_Pa / 1e6
 
@@ -113,9 +119,10 @@ p0_MPa = p0 / 1e6
 vmax_val = p0_MPa
 levels_setting = np.linspace(0.0, vmax_val, 101)
 
+# 'turbo' カラーマップを厳格に適用
 contour = ax.contourf(R_mesh, Z_mesh, sigma_mises_MPa, levels=levels_setting, cmap='turbo', extend='max', zorder=1)
 
-# 内部ピーク
+# 内部ピークの自動検出
 max_idx = np.unravel_index(np.argmax(sigma_mises_MPa), sigma_mises_MPa.shape)
 r_peak_nm = R_mesh[max_idx]
 z_peak_nm = Z_mesh[max_idx]
